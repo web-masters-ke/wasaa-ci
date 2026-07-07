@@ -1,0 +1,6 @@
+*                             @web-masters-ke/platform
+/POLICY.md                    @web-masters-ke/security-leads @web-masters-ke/engineering-leads
+/.github/workflows/           @web-masters-ke/platform @web-masters-ke/security-leads
+/configs/                     @web-masters-ke/platform @web-masters-ke/security-leads
+/configs/license-allowlist.json @web-masters-ke/legal @web-masters-ke/security-leads
+/scripts/                     @web-masters-ke/platform
