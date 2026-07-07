@@ -1,0 +1,67 @@
+# Wasaa custom Semgrep rules — cross-language guardrails
+# These are ON TOP of p/security-audit, p/owasp-top-ten, p/ci, p/secrets.
+rules:
+  - id: wasaa-no-console-log-in-prod
+    languages: [typescript, javascript]
+    message: "console.log leaks in production. Use the shared logger."
+    severity: WARNING
+    paths:
+      exclude: ["**/*.test.*", "**/*.spec.*", "**/scripts/**"]
+    pattern-either:
+      - pattern: console.log(...)
+      - pattern: console.debug(...)
+
+  - id: wasaa-no-hardcoded-jwt-secret
+    languages: [typescript, javascript, python]
+    message: "JWT secret must come from a secret manager, not a literal."
+    severity: ERROR
+    pattern-either:
+      - pattern: jwt.sign($X, "...")
+      - pattern: jwt.verify($X, "...")
+      - pattern: jwt.encode($X, "...", ...)
+
+  - id: wasaa-no-http-in-service-clients
+    languages: [typescript, javascript, python, dart]
+    message: "Service-to-service calls must be HTTPS. HTTP URLs are only allowed in tests and localhost."
+    severity: ERROR
+    patterns:
+      - pattern-regex: '"http://(?!localhost|127\.0\.0\.1|0\.0\.0\.0)[^"]+"'
+    paths:
+      exclude: ["**/*.test.*", "**/*.spec.*", "**/*_test.*"]
+
+  - id: wasaa-no-sql-string-concat
+    languages: [typescript, javascript, python, dart]
+    message: "SQL built via string concatenation. Use parameterized queries."
+    severity: ERROR
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $X.query("..." + $Y + "...")
+              - pattern: $X.query(`... ${$Y} ...`)
+              - pattern: $X.execute("..." + $Y + "...")
+      - pattern-regex: 'f"(SELECT|INSERT|UPDATE|DELETE|DROP)[^"]*\{[^}]+\}[^"]*"'
+
+  - id: wasaa-no-md5-sha1
+    languages: [typescript, javascript, python, dart]
+    message: "MD5 / SHA1 are broken for security use. Use SHA-256 or better."
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: '(?i)(createHash|hashlib\.|Digest)\s*\(\s*[''"](md5|sha1)[''"]'
+      - pattern-regex: '(?i)crypto\.createHash\(\s*[''"](md5|sha1)[''"]\s*\)'
+
+  - id: wasaa-no-dangerous-html
+    languages: [typescript, javascript]
+    message: "dangerouslySetInnerHTML / v-html requires review. Use DOMPurify or reject."
+    severity: WARNING
+    pattern-either:
+      - pattern: dangerouslySetInnerHTML={{...}}
+      - pattern-regex: 'v-html\s*='
+
+  - id: wasaa-require-request-id-in-logger
+    languages: [typescript, javascript, python]
+    message: "Structured logs must include a request/trace id. Use the shared logger factory."
+    severity: WARNING
+    pattern-either:
+      - pattern: logger.info($X)
+      - pattern: logging.info($X)
+    pattern-not-regex: '(request_id|trace_id|correlationId|reqId)'

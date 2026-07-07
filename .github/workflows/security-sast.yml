@@ -1,0 +1,113 @@
+name: security-sast
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        required: true
+        type: string
+      mode:
+        required: false
+        default: "fast"
+        type: string
+    secrets:
+      SEMGREP_APP_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Assemble ruleset
+        id: rules
+        run: |
+          set -e
+          rules=".wasaa-ci/configs/semgrep/wasaa-core.yml"
+          rules="$rules --config p/ci --config p/security-audit --config p/secrets --config p/owasp-top-ten"
+          if [[ "${{ inputs.stack }}" == *typescript* ]]; then
+            rules="$rules --config .wasaa-ci/configs/semgrep/typescript.yml --config p/typescript --config p/nodejsscan --config p/react"
+          fi
+          if [[ "${{ inputs.stack }}" == *python* ]]; then
+            rules="$rules --config .wasaa-ci/configs/semgrep/python.yml --config p/python --config p/django --config p/flask"
+          fi
+          if [[ "${{ inputs.stack }}" == *dart* ]]; then
+            rules="$rules --config .wasaa-ci/configs/semgrep/dart.yml"
+          fi
+          if [[ "${{ inputs.stack }}" == *go* ]]; then
+            rules="$rules --config .wasaa-ci/configs/semgrep/go.yml --config p/golang --config p/gosec"
+          fi
+          echo "rules=$rules" >> "$GITHUB_OUTPUT"
+
+      - name: Semgrep
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          semgrep ci \
+            --sarif --output semgrep.sarif \
+            --json --output semgrep.json \
+            --severity ERROR --severity WARNING \
+            $( [ "${{ inputs.mode }}" = "fast" ] && echo "--baseline-commit ${{ github.event.pull_request.base.sha || 'HEAD~1' }}" ) \
+            ${{ steps.rules.outputs.rules }} \
+            || echo "semgrep exit — evaluated by severity-gate"
+
+      - name: Enforce Semgrep severity
+        run: bash .wasaa-ci/scripts/severity-gate.sh --semgrep semgrep.json --gate ${{ inputs.mode }}
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-semgrep-${{ inputs.mode }}
+          path: |
+            semgrep.sarif
+            semgrep.json
+
+  codeql:
+    if: inputs.mode == 'full'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - ${{ contains(inputs.stack, 'typescript') && 'javascript-typescript' || '' }}
+          - ${{ contains(inputs.stack, 'python') && 'python' || '' }}
+          - ${{ contains(inputs.stack, 'go') && 'go' || '' }}
+    steps:
+      - name: Skip empty
+        if: matrix.language == ''
+        run: exit 0
+      - uses: actions/checkout@v4
+        if: matrix.language != ''
+      - uses: github/codeql-action/init@v3
+        if: matrix.language != ''
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+      - uses: github/codeql-action/autobuild@v3
+        if: matrix.language != ''
+      - uses: github/codeql-action/analyze@v3
+        if: matrix.language != ''
+        with:
+          category: /language:${{ matrix.language }}

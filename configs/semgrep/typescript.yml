@@ -1,0 +1,33 @@
+rules:
+  - id: wasaa-ts-no-any-in-public-api
+    languages: [typescript]
+    message: "Exported symbol uses `any`. Public API must be typed."
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: "export function $F(...): any { ... }"
+          - pattern: "export function $F($X: any, ...): $T { ... }"
+          - pattern: "export const $F = ($X: any) => $T"
+      - pattern-not-inside: |
+          // @ts-expect-error wasaa-any-waiver: $REASON
+          ...
+
+  - id: wasaa-ts-no-non-null-assertion-on-user-input
+    languages: [typescript]
+    message: "Non-null assertion (!) on request/user input hides real null-safety bugs."
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: "req.body.$X!"
+          - pattern: "req.params.$X!"
+          - pattern: "req.query.$X!"
+
+  - id: wasaa-ts-no-express-without-helmet
+    languages: [typescript, javascript]
+    message: "Express app instantiated without helmet(). Add security headers."
+    severity: WARNING
+    patterns:
+      - pattern: "const $APP = express()"
+      - pattern-not-inside: |
+          $APP.use(helmet(...))
+          ...

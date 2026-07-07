@@ -1,0 +1,28 @@
+rules:
+  - id: wasaa-dart-no-print-in-prod
+    languages: [dart]
+    message: "print() in production. Use debugPrint (dev) or the logger."
+    severity: WARNING
+    paths:
+      exclude: ["**/test/**", "**/*_test.dart"]
+    pattern: print($X)
+
+  - id: wasaa-dart-no-http-not-https
+    languages: [dart]
+    message: "Non-HTTPS URL in Dart source (excluding localhost). Enforce TLS."
+    severity: ERROR
+    pattern-regex: '"http://(?!localhost|127\.0\.0\.1)[^"]+"'
+
+  - id: wasaa-dart-no-insecure-webview
+    languages: [dart]
+    message: "WebView with JavaScript unrestricted and allowsInsecureLoad. Restrict URLs."
+    severity: ERROR
+    pattern-either:
+      - pattern: WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted)
+      - pattern-regex: 'WebViewSettings\([^)]*allowsInsecureLoad:\s*true'
+
+  - id: wasaa-dart-no-mirrors
+    languages: [dart]
+    message: "dart:mirrors runtime reflection is banned in production code."
+    severity: ERROR
+    pattern-regex: "import\\s+['\"]dart:mirrors['\"]"

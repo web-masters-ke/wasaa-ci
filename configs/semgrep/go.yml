@@ -1,0 +1,94 @@
+rules:
+  - id: wasaa-go-no-fmt-print-in-prod
+    languages: [go]
+    message: "fmt.Print* in production code. Use the shared structured logger."
+    severity: WARNING
+    paths:
+      exclude: ["**/*_test.go", "**/cmd/**", "**/scripts/**"]
+    pattern-either:
+      - pattern: fmt.Println(...)
+      - pattern: fmt.Printf(...)
+      - pattern: fmt.Print(...)
+
+  - id: wasaa-go-no-sql-format-string
+    languages: [go]
+    message: "SQL built via fmt.Sprintf — parameterize with placeholders ($1, ?) instead."
+    severity: ERROR
+    pattern-either:
+      - pattern: |
+          db.Query(fmt.Sprintf($X, ...))
+      - pattern: |
+          db.QueryRow(fmt.Sprintf($X, ...))
+      - pattern: |
+          db.Exec(fmt.Sprintf($X, ...))
+      - pattern: |
+          tx.Exec(fmt.Sprintf($X, ...))
+
+  - id: wasaa-go-no-http-server-no-timeouts
+    languages: [go]
+    message: "http.Server without ReadTimeout / WriteTimeout is a slow-loris DoS vector."
+    severity: ERROR
+    patterns:
+      - pattern: |
+          &http.Server{...}
+      - pattern-not: |
+          &http.Server{..., ReadTimeout: ..., ...}
+
+  - id: wasaa-go-no-http-listen-and-serve-default
+    languages: [go]
+    message: "http.ListenAndServe (default mux, no timeouts) is banned. Use a configured http.Server."
+    severity: ERROR
+    pattern: http.ListenAndServe(...)
+
+  - id: wasaa-go-no-md5-sha1
+    languages: [go]
+    message: "MD5 / SHA1 are broken. Use SHA-256 (crypto/sha256) or better."
+    severity: ERROR
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: md5.Sum(...)
+      - pattern: sha1.New()
+      - pattern: sha1.Sum(...)
+
+  - id: wasaa-go-no-math-rand-for-security
+    languages: [go]
+    message: "math/rand is not cryptographically secure. Use crypto/rand."
+    severity: ERROR
+    pattern-either:
+      - pattern: rand.Int(...)
+      - pattern: rand.Read(...)
+      - pattern: rand.Intn(...)
+    pattern-not-inside: |
+      import "crypto/rand"
+      ...
+
+  - id: wasaa-go-no-nil-context
+    languages: [go]
+    message: "Passing nil context is banned. Use context.TODO() or context.Background()."
+    severity: ERROR
+    pattern-either:
+      - pattern: $F(nil, ...)
+    pattern-not-inside: |
+      // wasaa-nil-ctx-waiver: $REASON
+      ...
+
+  - id: wasaa-go-require-defer-body-close
+    languages: [go]
+    message: "http response body must be Close()d via defer."
+    severity: WARNING
+    patterns:
+      - pattern: |
+          $RESP, $ERR := http.$M(...)
+      - pattern-not-inside: |
+          $RESP, $ERR := http.$M(...)
+          ...
+          defer $RESP.Body.Close()
+          ...
+
+  - id: wasaa-go-no-panic-in-lib
+    languages: [go]
+    message: "panic() in library code. Return an error."
+    severity: ERROR
+    paths:
+      exclude: ["**/cmd/**", "**/*_test.go"]
+    pattern: panic(...)
