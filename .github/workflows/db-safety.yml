@@ -100,5 +100,31 @@ jobs:
           repository: web-masters-ke/wasaa-ci
           ref: main
           path: .wasaa-ci
-      - name: N+1 heuristic (Prisma / TypeORM / Sequelize / SQLAlchemy / Django / Drift)
+      - name: N+1 heuristic (Prisma / TypeORM / Sequelize / SQLAlchemy / Django / Drift / GORM / sqlx)
         run: bash .wasaa-ci/scripts/nplus1-detect.sh
+      - name: Upload N+1 findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nplus1-findings
+          path: nplus1.json
+          if-no-files-found: ignore
+
+  query-index-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - name: Query-site vs schema index cross-reference
+        run: bash .wasaa-ci/scripts/query-index-audit.sh
+      - name: Upload query-index findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: query-index-findings
+          path: query-index.json
+          if-no-files-found: ignore

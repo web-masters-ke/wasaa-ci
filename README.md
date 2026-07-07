@@ -80,10 +80,11 @@ configs/                    tool configs (checked out by workflows)
   license-allowlist.json    approved OSS licenses
 
 scripts/                    custom heuristics
-  nplus1-detect.sh          ORM N+1 heuristic (TS, Python, Dart, Go)
+  nplus1-detect.sh          ORM N+1 heuristic (TS, Python, Dart, Go) with route-handler attribution
+  query_index_audit.py      cross-references ORM schemas + migrations against query sites, flags unindexed filters
   mongo-query-audit.sh      unsafe Mongo pattern audit
   redis-usage-audit.sh      Redis pattern audit
-  db-index-audit.sh         Postgres missing-index heuristic
+  db-index-audit.sh         Postgres missing-index heuristic (migration-scoped)
   docker-optimization-audit.sh  Dockerfile best-practices + image-size discipline
   docker-compose-audit.sh   docker-compose production hygiene lint
   gate-summary.sh           roll-up + PR comment
@@ -189,6 +190,7 @@ dart analyze --fatal-infos --fatal-warnings
 
 # Custom heuristics (any stack)
 bash ../wasaa-ci/scripts/nplus1-detect.sh
+bash ../wasaa-ci/scripts/query-index-audit.sh
 bash ../wasaa-ci/scripts/mongo-query-audit.sh
 bash ../wasaa-ci/scripts/redis-usage-audit.sh
 ```

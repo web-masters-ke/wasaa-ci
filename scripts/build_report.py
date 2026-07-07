@@ -51,16 +51,31 @@ def load_sarifs(root):
     return findings
 
 def load_extras(root):
-    """Consume gate-summary.json and any tool-native JSON (semgrep.json, nplus1.json, etc.)"""
+    """Consume gate-summary.json and any tool-native JSON (semgrep.json, nplus1.json, query-index.json, etc.)"""
     extras = []
     # nplus1
     for p in glob.glob(os.path.join(root, "**", "nplus1.json"), recursive=True):
         try:
             d = json.load(open(p))
             for f in d.get("findings", []):
+                endpoint = f.get("endpoint")
+                msg = f.get("note","")
+                if endpoint: msg = f"[endpoint: {endpoint}] {msg}"
                 extras.append({
                     "tool":"wasaa-nplus1","rule":f.get("pattern","nplus1"),
                     "severity":(f.get("severity") or "HIGH").upper(),
+                    "file":f.get("file",""),"line":f.get("line"),
+                    "message":msg,"source":os.path.relpath(p,root),
+                })
+        except Exception: pass
+    # query-index audit
+    for p in glob.glob(os.path.join(root, "**", "query-index.json"), recursive=True):
+        try:
+            d = json.load(open(p))
+            for f in d.get("findings", []):
+                extras.append({
+                    "tool":"wasaa-query-index","rule":"missing-index",
+                    "severity":(f.get("severity") or "MEDIUM").upper(),
                     "file":f.get("file",""),"line":f.get("line"),
                     "message":f.get("note",""),"source":os.path.relpath(p,root),
                 })
