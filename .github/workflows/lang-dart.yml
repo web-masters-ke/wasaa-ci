@@ -1,0 +1,88 @@
+name: lang-dart
+
+on:
+  workflow_call:
+    inputs:
+      dart_channel:
+        required: false
+        default: "stable"
+        type: string
+      mode:
+        required: false
+        default: "fast"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Detect Flutter vs Dart
+        id: kind
+        run: |
+          if grep -q "flutter:" pubspec.yaml 2>/dev/null; then
+            echo "kind=flutter" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=dart" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: subosito/flutter-action@v2
+        if: steps.kind.outputs.kind == 'flutter'
+        with:
+          channel: ${{ inputs.dart_channel }}
+          cache: true
+
+      - uses: dart-lang/setup-dart@v1
+        if: steps.kind.outputs.kind == 'dart'
+        with:
+          sdk: ${{ inputs.dart_channel }}
+
+      - name: Copy shared analysis_options
+        run: cp .wasaa-ci/configs/dart/analysis_options.yaml ./analysis_options.wasaa.yaml
+
+      - name: Install deps
+        run: |
+          if [ "${{ steps.kind.outputs.kind }}" = "flutter" ]; then
+            flutter pub get
+          else
+            dart pub get
+          fi
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze (fatal on info)
+        run: |
+          if [ "${{ steps.kind.outputs.kind }}" = "flutter" ]; then
+            flutter analyze --fatal-infos --fatal-warnings
+          else
+            dart analyze --fatal-infos --fatal-warnings
+          fi
+
+      - name: dart_code_metrics (full mode)
+        if: inputs.mode == 'full'
+        run: |
+          dart pub global activate dart_code_metrics 5.7.6 || true
+          dart pub global run dart_code_metrics:metrics analyze lib \
+            --reporter=github --set-exit-on-violation-level=warning \
+            --maximum-nesting-level=4 \
+            --cyclomatic-complexity=15 || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lang-dart-${{ inputs.mode }}
+          path: |
+            build/reports/*
+          if-no-files-found: ignore
