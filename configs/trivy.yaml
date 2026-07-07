@@ -1,0 +1,22 @@
+severity:
+  - CRITICAL
+  - HIGH
+vulnerability:
+  ignore-unfixed: true
+misconfiguration:
+  severity:
+    - CRITICAL
+    - HIGH
+secret:
+  config: ""
+scan:
+  skip-dirs:
+    - node_modules
+    - vendor
+    - .venv
+    - dist
+    - build
+    - .next
+  skip-files:
+    - "**/*.min.js"
+timeout: 15m

@@ -1,0 +1,14 @@
+failure-threshold: warning
+ignored:
+  - DL3008   # apt version pinning — we use --no-install-recommends + explicit deps
+override:
+  error:
+    - DL3002   # last USER must not be root
+    - DL3007   # avoid latest tag
+    - DL3020   # use COPY not ADD
+    - DL3027   # apt-get instead of apt
+    - DL4001   # curl or wget but not both
+    - DL4006   # SHELL=/bin/bash -euo pipefail
+  warning:
+    - DL3009   # apt-get clean
+    - DL3015   # --no-install-recommends

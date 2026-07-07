@@ -1,0 +1,280 @@
+name: security-container
+
+on:
+  workflow_call:
+    inputs:
+      context:
+        required: false
+        default: "."
+        type: string
+      dockerfile:
+        required: false
+        default: "Dockerfile"
+        type: string
+      mode:
+        required: false
+        default: "full"
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+
+jobs:
+  hadolint:
+    if: inputs.mode != 'iac-only'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ inputs.dockerfile }}
+          config: .wasaa-ci/configs/hadolint.yaml
+          format: sarif
+          output-file: hadolint.sarif
+          no-fail: false
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: hadolint.sarif
+          category: hadolint
+
+  wasaa-dockerfile-invariants:
+    if: inputs.mode != 'iac-only'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Non-root USER, no :latest, HEALTHCHECK present
+        run: |
+          df="${{ inputs.dockerfile }}"
+          fail=0
+          # 1. Non-root USER
+          if ! grep -Ei '^\s*USER\s+[a-zA-Z0-9_-]+' "$df" | grep -viq 'root'; then
+            echo "::error file=$df::Dockerfile must set a non-root USER."
+            fail=1
+          fi
+          # 2. No FROM ...:latest
+          if grep -Ei '^\s*FROM\s+.*:latest' "$df"; then
+            echo "::error file=$df::Dockerfile must not use the :latest tag. Use a pinned semver or digest."
+            fail=1
+          fi
+          if grep -E '^\s*FROM\s+[^:@]+\s*$' "$df"; then
+            echo "::error file=$df::Every FROM must be pinned (:tag or @sha256:...)."
+            fail=1
+          fi
+          # 3. HEALTHCHECK required
+          if ! grep -Eq '^\s*HEALTHCHECK\b' "$df"; then
+            echo "::error file=$df::Dockerfile must define HEALTHCHECK."
+            fail=1
+          fi
+          exit $fail
+
+  trivy-image:
+    if: inputs.mode != 'iac-only'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (for scan)
+        run: |
+          docker build -f "${{ inputs.dockerfile }}" -t wasaa/scan:${{ github.sha }} "${{ inputs.context }}"
+      - name: Trivy image
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: wasaa/scan:${{ github.sha }}
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          trivy-config: .wasaa-ci/configs/trivy.yaml
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+      - name: Save image tarball for follow-on scans
+        run: docker save wasaa/scan:${{ github.sha }} -o /tmp/wasaa-image.tar
+      - name: Upload image tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-image-tar
+          path: /tmp/wasaa-image.tar
+          retention-days: 1
+
+  dockle:
+    if: inputs.mode != 'iac-only'
+    runs-on: ubuntu-latest
+    needs: trivy-image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: container-image-tar
+          path: /tmp
+      - name: Load image
+        run: docker load -i /tmp/wasaa-image.tar
+      - name: dockle (CIS + image best practices)
+        run: |
+          curl -sSL -o dockle.tgz "https://github.com/goodwithtech/dockle/releases/download/v0.4.14/dockle_0.4.14_Linux-64bit.tar.gz"
+          tar -xzf dockle.tgz dockle && sudo mv dockle /usr/local/bin/
+          dockle --exit-code 1 --exit-level warn --format sarif --output dockle.sarif wasaa/scan:${{ github.sha }}
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: dockle.sarif
+          category: dockle
+
+  dive:
+    if: inputs.mode != 'iac-only'
+    runs-on: ubuntu-latest
+    needs: trivy-image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: container-image-tar
+          path: /tmp
+      - name: Load image + measure size
+        id: size
+        run: |
+          docker load -i /tmp/wasaa-image.tar
+          bytes=$(docker image inspect wasaa/scan:${{ github.sha }} --format='{{.Size}}')
+          mb=$(( bytes / 1024 / 1024 ))
+          echo "size_mb=$mb" >> "$GITHUB_OUTPUT"
+          echo "Final image size: ${mb} MB"
+      - name: dive layer efficiency
+        run: |
+          curl -sSL -o dive.tgz "https://github.com/wagoodman/dive/releases/download/v0.12.0/dive_0.12.0_linux_amd64.tar.gz"
+          tar -xzf dive.tgz dive && sudo mv dive /usr/local/bin/
+          # CI config: at least 95% efficiency, no single layer wasting >10MB, dupes tolerated ≤5MB
+          cat > .dive-ci.yaml <<'EOF'
+          rules:
+            lowestEfficiency: 0.95
+            highestWastedBytes: 10MB
+            highestUserWastedPercent: 0.10
+          EOF
+          CI=true dive --ci --ci-config .dive-ci.yaml wasaa/scan:${{ github.sha }}
+      - name: Enforce image size budget (500 MB soft, 1 GB hard)
+        env:
+          MB: ${{ steps.size.outputs.size_mb }}
+        run: |
+          if [ "$MB" -gt 1024 ]; then
+            echo "::error::Image is ${MB} MB (> 1024 MB hard cap). Slim the base or add multi-stage."
+            exit 1
+          elif [ "$MB" -gt 500 ]; then
+            echo "::warning::Image is ${MB} MB (> 500 MB recommended). Consider slimmer base / multi-stage."
+          fi
+
+  docker-optimization:
+    if: inputs.mode != 'iac-only'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - name: Detect Dockerfile(s)
+        id: check
+        run: |
+          if find . -type f \( -name Dockerfile -o -name 'Dockerfile.*' -o -name '*.Dockerfile' \) \
+              -not -path './node_modules/*' -not -path './.git/*' -not -path './.wasaa-ci/*' | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Dockerfile optimization audit
+        if: steps.check.outputs.present == 'true'
+        run: bash .wasaa-ci/scripts/docker-optimization-audit.sh
+
+  compose-hygiene:
+    if: inputs.mode != 'iac-only'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - name: Detect compose files
+        id: check
+        run: |
+          if find . -type f \( -name 'docker-compose*.y*ml' -o -name 'compose*.y*ml' \) \
+              -not -path './node_modules/*' -not -path './.git/*' -not -path './.wasaa-ci/*' | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: docker compose config (syntax)
+        if: steps.check.outputs.present == 'true'
+        run: |
+          for f in $(find . -type f \( -name 'docker-compose*.y*ml' -o -name 'compose*.y*ml' \) \
+                       -not -path './node_modules/*' -not -path './.git/*' -not -path './.wasaa-ci/*'); do
+            echo "== validating $f =="
+            docker compose -f "$f" config --quiet
+          done
+      - name: Compose hygiene audit
+        if: steps.check.outputs.present == 'true'
+        run: bash .wasaa-ci/scripts/docker-compose-audit.sh
+
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - name: Checkov (IaC + Dockerfile + K8s + Helm + Terraform)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          config_file: .wasaa-ci/configs/checkov.yaml
+          output_format: sarif
+          output_file_path: checkov.sarif
+          soft_fail: false
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov.sarif
+          category: checkov
+
+  kube-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect k8s manifests
+        id: k8s
+        run: |
+          if find . -type f \( -name '*.yaml' -o -name '*.yml' \) -exec grep -l '^kind:' {} \; | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: kube-linter
+        if: steps.k8s.outputs.present == 'true'
+        uses: stackrox/kube-linter-action@v1
+        with:
+          directory: .
+          format: sarif
+          output-file: kube-linter.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.k8s.outputs.present == 'true'
+        with:
+          sarif_file: kube-linter.sarif
+          category: kube-linter

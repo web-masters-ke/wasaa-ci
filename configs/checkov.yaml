@@ -1,0 +1,13 @@
+framework:
+  - dockerfile
+  - kubernetes
+  - helm
+  - terraform
+  - github_actions
+  - secrets
+soft-fail: false
+skip-check:
+  - CKV_DOCKER_2  # HEALTHCHECK — enforced by our own script
+compact: true
+quiet: true
+output: sarif
