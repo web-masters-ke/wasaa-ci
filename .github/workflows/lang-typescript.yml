@@ -1,0 +1,94 @@
+name: lang-typescript
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        required: false
+        default: "20"
+        type: string
+      mode:
+        description: "fast | full"
+        required: false
+        default: "fast"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout wasaa-ci configs
+        uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+
+      - name: Detect package manager
+        id: pm
+        run: |
+          if [ -f pnpm-lock.yaml ]; then echo "pm=pnpm" >> "$GITHUB_OUTPUT"
+          elif [ -f yarn.lock ]; then echo "pm=yarn" >> "$GITHUB_OUTPUT"
+          else echo "pm=npm" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies (frozen)
+        run: |
+          case "${{ steps.pm.outputs.pm }}" in
+            pnpm) corepack enable && pnpm install --frozen-lockfile ;;
+            yarn) corepack enable && yarn install --frozen-lockfile ;;
+            npm)  npm ci ;;
+          esac
+
+      - name: TypeScript strict check
+        run: npx --yes tsc --noEmit --strict --incremental false
+
+      - name: ESLint (security + code-quality)
+        run: |
+          npx --yes eslint \
+            --config .wasaa-ci/configs/eslint/.eslintrc.wasaa.json \
+            --resolve-plugins-relative-to .wasaa-ci/configs/eslint \
+            --ext .ts,.tsx,.js,.jsx \
+            --format @microsoft/eslint-formatter-sarif --output-file eslint.sarif \
+            . || echo "eslint returned non-zero — evaluated by severity-gate"
+
+      - name: Prettier check
+        run: npx --yes prettier --check "**/*.{ts,tsx,js,jsx,json,md,yml,yaml}"
+
+      - name: Complexity + dead-code (full mode only)
+        if: inputs.mode == 'full'
+        run: |
+          npx --yes ts-prune --error > ts-prune.out || true
+          npx --yes complexity-report --format json --output complexity.json src || true
+          node .wasaa-ci/scripts/enforce-complexity.js complexity.json 15 500
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: eslint.sarif
+          category: eslint
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lang-typescript-${{ inputs.mode }}
+          path: |
+            eslint.sarif
+            ts-prune.out
+            complexity.json
+          if-no-files-found: ignore

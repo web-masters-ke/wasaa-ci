@@ -1,0 +1,49 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "project": null
+  },
+  "env": { "node": true, "browser": true, "es2022": true, "jest": true },
+  "plugins": [
+    "@typescript-eslint",
+    "security",
+    "no-secrets",
+    "sonarjs",
+    "promise",
+    "unicorn"
+  ],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:security/recommended-legacy",
+    "plugin:sonarjs/recommended-legacy",
+    "plugin:promise/recommended",
+    "plugin:unicorn/recommended"
+  ],
+  "rules": {
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-secrets/no-secrets": ["error", { "tolerance": 4.5 }],
+    "security/detect-object-injection": "off",
+    "security/detect-non-literal-fs-filename": "warn",
+    "security/detect-unsafe-regex": "error",
+    "security/detect-buffer-noassert": "error",
+    "security/detect-child-process": "error",
+    "security/detect-eval-with-expression": "error",
+    "sonarjs/cognitive-complexity": ["error", 15],
+    "sonarjs/no-duplicate-string": "off",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/no-null": "off",
+    "unicorn/prevent-abbreviations": "off",
+    "unicorn/filename-case": "off",
+    "@typescript-eslint/no-explicit-any": "warn",
+    "@typescript-eslint/no-floating-promises": "off",
+    "@typescript-eslint/consistent-type-imports": "error"
+  },
+  "ignorePatterns": ["dist", "build", "coverage", "node_modules", "*.d.ts"]
+}
