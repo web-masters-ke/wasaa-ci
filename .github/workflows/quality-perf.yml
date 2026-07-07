@@ -1,0 +1,54 @@
+name: quality-perf
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: false
+        default: "full"
+        type: string
+      bundle_regression_pct:
+        required: false
+        default: "10"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  size-limit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Install
+        run: |
+          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then corepack enable && yarn install --frozen-lockfile
+          else npm ci
+          fi
+      - name: size-limit (if configured)
+        run: |
+          if npx --no size-limit --version >/dev/null 2>&1; then
+            npx size-limit --json > size.json
+            cat size.json
+          else
+            echo "::warning::size-limit not configured. Add .size-limit.json to enforce bundle budgets."
+          fi
+
+  lighthouse:
+    if: inputs.mode == 'full'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lighthouse CI
+        run: |
+          if [ -f lighthouserc.json ] || [ -f lighthouserc.js ]; then
+            npm install -g @lhci/cli
+            lhci autorun --collect.numberOfRuns=3 --assert.preset=lighthouse:recommended
+          else
+            echo "::warning::lighthouserc not present — skipping. Add lighthouserc.json to enforce web-vitals."
+          fi

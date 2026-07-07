@@ -1,0 +1,44 @@
+extends:
+  - spectral:oas
+  - spectral:asyncapi
+
+rules:
+  # ---- Wasaa additions ----
+  wasaa-operation-must-declare-security:
+    description: "Every non-public operation must declare a security scheme."
+    given: "$.paths[*][get,post,put,patch,delete]"
+    severity: error
+    then:
+      field: security
+      function: truthy
+  wasaa-operation-must-have-tags:
+    description: "Operations must be tagged for routing / docs."
+    given: "$.paths[*][get,post,put,patch,delete]"
+    severity: error
+    then:
+      field: tags
+      function: truthy
+  wasaa-error-response-schema:
+    description: "4xx/5xx responses must reference the shared error schema."
+    given: "$.paths[*][*].responses[?(@property.match(/^[45]/))]"
+    severity: error
+    then:
+      field: content.application/json.schema.$ref
+      function: pattern
+      functionOptions:
+        match: '#/components/schemas/(Error|ProblemDetail)'
+  wasaa-info-must-have-contact-and-license:
+    given: "$.info"
+    severity: error
+    then:
+      - field: contact
+        function: truthy
+      - field: license
+        function: truthy
+  wasaa-server-must-be-https:
+    given: "$.servers[*].url"
+    severity: error
+    then:
+      function: pattern
+      functionOptions:
+        match: '^https://'

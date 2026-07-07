@@ -1,0 +1,60 @@
+name: quality-api
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: false
+        default: "fast"
+        type: string
+      spec_glob:
+        required: false
+        default: "**/openapi.{yml,yaml,json}"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  spectral:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Locate spec(s)
+        id: spec
+        run: |
+          specs=$(find . -type f \( -name 'openapi.yml' -o -name 'openapi.yaml' -o -name 'openapi.json' \) -not -path './node_modules/*')
+          echo "specs<<EOF" >> "$GITHUB_OUTPUT"; echo "$specs" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+          [ -z "$specs" ] && echo "::warning::has_openapi=true but no spec found" && exit 0
+      - name: Spectral lint
+        run: |
+          if [ -z "${{ steps.spec.outputs.specs }}" ]; then exit 0; fi
+          npx --yes @stoplight/spectral-cli lint \
+            --ruleset .wasaa-ci/configs/spectral/wasaa.spectral.yaml \
+            --format github-actions \
+            --fail-severity=error \
+            ${{ steps.spec.outputs.specs }}
+
+  openapi-breaking-change:
+    if: inputs.mode == 'full'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Detect breaking changes vs base branch
+        run: |
+          base_ref="${{ github.event.pull_request.base.ref || 'main' }}"
+          git fetch origin "$base_ref"
+          spec=$(find . -type f \( -name 'openapi.yml' -o -name 'openapi.yaml' -o -name 'openapi.json' \) | head -1)
+          if [ -z "$spec" ]; then echo "no spec"; exit 0; fi
+          git show "origin/$base_ref:$spec" > /tmp/base-spec 2>/dev/null || { echo "no base spec — new API"; exit 0; }
+          npx --yes @useoptic/openapi-cli diff /tmp/base-spec "$spec" --fail-on-breaking-change

@@ -1,0 +1,170 @@
+name: quality-tests
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        required: true
+        type: string
+      node_version:
+        required: false
+        default: "20"
+        type: string
+      python_version:
+        required: false
+        default: "3.12"
+        type: string
+      dart_channel:
+        required: false
+        default: "stable"
+        type: string
+      go_version:
+        required: false
+        default: "1.23"
+        type: string
+      mode:
+        required: false
+        default: "fast"
+        type: string
+      coverage_overall_min:
+        required: false
+        default: "70"
+        type: string
+      coverage_diff_min:
+        required: false
+        default: "80"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  ts-tests:
+    if: contains(inputs.stack, 'typescript')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - run: |
+          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then corepack enable && yarn install --frozen-lockfile
+          else npm ci
+          fi
+      - name: Run tests with coverage
+        run: |
+          # jest / vitest — try both. Fail if neither exists.
+          if npx --no jest --version >/dev/null 2>&1; then
+            npx jest --coverage --coverageReporters=lcov --coverageReporters=json-summary --ci
+          elif npx --no vitest --version >/dev/null 2>&1; then
+            npx vitest run --coverage --coverage.reporter=lcov --coverage.reporter=json-summary
+          else
+            echo "::error::No test runner (jest/vitest) detected"; exit 1
+          fi
+      - name: Enforce coverage thresholds
+        run: |
+          node -e "
+            const s = require('./coverage/coverage-summary.json').total;
+            const min = ${{ inputs.coverage_overall_min }};
+            const lines = s.lines.pct;
+            console.log('line coverage:', lines);
+            if (lines < min) { console.error('::error::Coverage ' + lines + '% < min ' + min + '%'); process.exit(1); }
+          "
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage-ts, path: coverage/ }
+
+  py-tests:
+    if: contains(inputs.stack, 'python')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+      - name: Install
+        run: |
+          if [ -f poetry.lock ]; then pipx install poetry && poetry install --with dev && echo "PY=poetry run" >> $GITHUB_ENV
+          elif [ -f uv.lock ]; then pipx install uv && uv sync --all-extras && echo "PY=uv run" >> $GITHUB_ENV
+          else python -m pip install -U pip pytest pytest-cov && [ -f requirements.txt ] && pip install -r requirements.txt || true && echo "PY=" >> $GITHUB_ENV
+          fi
+      - name: pytest with coverage
+        run: |
+          $PY pytest --cov=. --cov-report=xml --cov-report=term --cov-fail-under=${{ inputs.coverage_overall_min }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage-py, path: coverage.xml }
+
+  dart-tests:
+    if: contains(inputs.stack, 'dart')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.dart_channel }}
+      - run: |
+          if grep -q 'flutter:' pubspec.yaml; then flutter pub get; else dart pub get; fi
+      - name: Run tests + coverage
+        run: |
+          if grep -q 'flutter:' pubspec.yaml; then
+            flutter test --coverage
+          else
+            dart pub global activate coverage
+            dart test --coverage=coverage
+            dart pub global run coverage:format_coverage --lcov --in=coverage --out=coverage/lcov.info --report-on=lib
+          fi
+      - name: Enforce coverage
+        run: |
+          python3 - <<PY
+          import re, sys
+          hits=miss=0
+          try:
+              for L in open('coverage/lcov.info'):
+                  if L.startswith('DA:'):
+                      _,c = L.strip().split(':',1); _,h = c.split(',')
+                      if int(h)>0: hits+=1
+                      else: miss+=1
+              total=hits+miss
+              pct = (hits/total*100) if total else 100.0
+              print(f'Dart line coverage: {pct:.1f}%')
+              if pct < ${{ inputs.coverage_overall_min }}:
+                  print(f'::error::Coverage {pct:.1f}% < ${{ inputs.coverage_overall_min }}%'); sys.exit(1)
+          except FileNotFoundError:
+              print('::error::No coverage/lcov.info produced'); sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage-dart, path: coverage/ }
+
+  go-tests:
+    if: contains(inputs.stack, 'go')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+      - name: go test -race -cover
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out > coverage.txt
+          cat coverage.txt | tail -1
+      - name: Enforce coverage
+        run: |
+          pct=$(go tool cover -func=coverage.out | tail -1 | awk '{gsub("%","",$3); print $3}')
+          min=${{ inputs.coverage_overall_min }}
+          echo "Go line coverage: $pct%  (min $min%)"
+          awk -v p="$pct" -v m="$min" 'BEGIN { exit !(p+0 >= m+0) }' || {
+            echo "::error::Go coverage $pct% < $min%"; exit 1;
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage-go, path: coverage.out }
