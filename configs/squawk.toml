@@ -1,0 +1,14 @@
+# squawk — Postgres migration linter
+# https://squawkhq.com/docs/rules
+excluded_rules = []
+# We do NOT exclude any default rule. The dangerous ones we care about:
+#   - adding-required-field
+#   - adding-not-nullable-field
+#   - constraint-missing-not-valid
+#   - disallow-unique-constraint
+#   - renaming-column
+#   - renaming-table
+#   - require-concurrent-index-creation
+#   - require-concurrent-index-deletion
+#   - changing-column-type
+#   - transaction-nesting

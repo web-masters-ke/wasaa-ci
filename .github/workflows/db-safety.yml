@@ -1,0 +1,104 @@
+name: db-safety
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        required: true
+        type: string
+      db:
+        required: true
+        type: string
+      mode:
+        required: false
+        default: "fast"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  postgres-migrations:
+    if: contains(inputs.db, 'postgres')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Locate migration files (only changed on fast mode)
+        id: mig
+        run: |
+          if [ "${{ inputs.mode }}" = "fast" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            files=$(git diff --name-only --diff-filter=AM "${{ github.event.pull_request.base.sha }}"...HEAD -- '*.sql' \
+              'migrations/**' 'src/migrations/**' 'db/migrate/**' 'prisma/migrations/**' 'alembic/versions/**' || true)
+          else
+            files=$(find . -type f \( -path '*/migrations/*.sql' -o -path '*/migrate/*.sql' -o -path '*/prisma/migrations/*.sql' -o -path '*/alembic/versions/*.py' \))
+          fi
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"; echo "$files" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Install squawk
+        run: |
+          curl -sSL https://github.com/sbdchd/squawk/releases/latest/download/squawk-linux-x86_64.tar.gz | tar -xz
+          sudo mv squawk-linux-x86_64/squawk /usr/local/bin/squawk
+
+      - name: squawk (Postgres migration linter)
+        run: |
+          if [ -z "${{ steps.mig.outputs.files }}" ]; then echo "No SQL migrations changed."; exit 0; fi
+          echo "${{ steps.mig.outputs.files }}" | grep -E '\.sql$' | xargs -r squawk lint --config .wasaa-ci/configs/squawk.toml
+
+      - name: sqlfluff style
+        run: |
+          pip install sqlfluff
+          find . -name '*.sql' -not -path './node_modules/*' | \
+            xargs -r sqlfluff lint --config .wasaa-ci/configs/sqlfluff/.sqlfluff --disable-progress-bar
+
+  mongo-query-audit:
+    if: contains(inputs.db, 'mongo')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - name: Mongo query pattern audit
+        run: bash .wasaa-ci/scripts/mongo-query-audit.sh
+
+  redis-usage-audit:
+    if: contains(inputs.db, 'redis')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - name: Redis pattern audit
+        run: bash .wasaa-ci/scripts/redis-usage-audit.sh
+
+  nplus1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+      - name: N+1 heuristic (Prisma / TypeORM / Sequelize / SQLAlchemy / Django / Drift)
+        run: bash .wasaa-ci/scripts/nplus1-detect.sh
