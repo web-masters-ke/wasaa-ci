@@ -1,0 +1,61 @@
+name: report-aggregate
+
+on:
+  workflow_call:
+    inputs:
+      gate:
+        description: "fast | full"
+        required: true
+        type: string
+      workflow_run_id:
+        description: "The workflow run id whose artifacts to consume (usually github.run_id)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  build-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Download all artifacts from this run
+        uses: actions/download-artifact@v4
+        with:
+          path: findings
+          merge-multiple: false
+
+      - name: Build human-readable report
+        env:
+          GATE: ${{ inputs.gate }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 .wasaa-ci/scripts/build_report.py findings report
+
+      - name: Upload aggregated report bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasaa-ci-report-${{ inputs.gate }}
+          path: |
+            report/index.html
+            report/report.md
+            report/findings.json
+            report/findings.sarif
+          retention-days: 30
+
+      - name: Comment on PR (if any)
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: wasaa-ci-report
+          path: report/report.md
