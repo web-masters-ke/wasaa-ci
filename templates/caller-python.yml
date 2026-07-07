@@ -1,0 +1,46 @@
+# Drop this in a Python product repo at .github/workflows/ci.yml
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast:
+    if: github.event_name == 'pull_request'
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-fast.yml@main
+    with:
+      stack: python
+      db: postgres,mongo,redis
+      has_openapi: true
+      python_version: '3.12'
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}
+
+  full:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-full-gate.yml@main
+    with:
+      stack: python
+      db: postgres,mongo,redis
+      has_openapi: true
+      has_container: true
+      container_dockerfile: Dockerfile
+      has_iac: true
+      python_version: '3.12'
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}
+
+  deploy:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: full
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Deploy ${{ github.ref_name }} — implement your deploy step here"

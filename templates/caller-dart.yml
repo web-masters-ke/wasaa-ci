@@ -1,0 +1,38 @@
+# Drop this in a Dart/Flutter product repo at .github/workflows/ci.yml
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast:
+    if: github.event_name == 'pull_request'
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-fast.yml@main
+    with:
+      stack: dart
+      db: none
+      has_frontend_bundle: true
+      dart_channel: stable
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}
+
+  full:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-full-gate.yml@main
+    with:
+      stack: dart
+      db: none
+      has_frontend_bundle: true
+      has_container: false
+      has_iac: false
+      dart_channel: stable
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}

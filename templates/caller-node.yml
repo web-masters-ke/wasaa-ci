@@ -1,0 +1,48 @@
+# Drop this in a Node/TypeScript product repo at .github/workflows/ci.yml
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast:
+    if: github.event_name == 'pull_request'
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-fast.yml@main
+    with:
+      stack: typescript
+      db: postgres,redis
+      has_openapi: true
+      node_version: '20'
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}
+
+  full:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-full-gate.yml@main
+    with:
+      stack: typescript
+      db: postgres,redis
+      has_openapi: true
+      has_frontend_bundle: false
+      has_container: true
+      container_dockerfile: Dockerfile
+      has_iac: true
+      node_version: '20'
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}
+
+  # Product deploy job MUST depend on `full` for tag builds
+  deploy:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: full
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Deploy ${{ github.ref_name }} — implement your deploy step here"

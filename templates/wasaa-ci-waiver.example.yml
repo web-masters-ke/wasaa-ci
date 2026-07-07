@@ -1,0 +1,19 @@
+# .wasaa-ci-waiver.yml — copy to the ROOT of a product repo to waive specific findings.
+# Every entry is time-boxed (max 30 days), scoped to a rule + path, and requires approval.
+# See POLICY.md § Waiver process.
+
+- rule_id: semgrep.security.audit.sqli.node-postgres-sqli
+  path: src/legacy/report-generator.ts
+  reason: >
+    Legacy admin-only report tool. Access is restricted to internal VPN.
+    Migration to parameterized queries tracked in TICKET-4821.
+  expires: 2026-08-01
+  approved_by: "@web-masters-ke/security-leads"
+
+- rule_id: trivy.CVE-2024-XXXXX
+  path: package-lock.json
+  reason: >
+    No fix available upstream. Vulnerable code path not reachable from our API.
+    Verified with grep + runtime tracing; see security/ANALYSIS-CVE-XXXXX.md.
+  expires: 2026-07-20
+  approved_by: "@web-masters-ke/security-leads"
