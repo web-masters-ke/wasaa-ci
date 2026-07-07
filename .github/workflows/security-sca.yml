@@ -1,0 +1,147 @@
+name: security-sca
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        required: true
+        type: string
+      mode:
+        required: false
+        default: "fast"
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-fs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Trivy fs (vuln + license + secret + config)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          scanners: vuln,secret,misconfig,license
+          trivy-config: .wasaa-ci/configs/trivy.yaml
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  npm-audit:
+    if: contains(inputs.stack, 'typescript')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Detect PM + audit
+        run: |
+          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm audit --prod --audit-level=high
+          elif [ -f yarn.lock ]; then corepack enable && yarn npm audit --severity high --recursive
+          else npm audit --production --audit-level=high
+          fi
+
+  pip-audit:
+    if: contains(inputs.stack, 'python')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          if [ -f poetry.lock ]; then pip-audit --requirement <(poetry export -f requirements.txt --without-hashes) --strict
+          elif [ -f uv.lock ]; then pip-audit --strict
+          elif [ -f requirements.txt ]; then pip-audit -r requirements.txt --strict
+          else pip-audit --strict
+          fi
+
+  pub-audit:
+    if: contains(inputs.stack, 'dart')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - name: pub outdated (fail on discontinued / major-lag)
+        run: |
+          dart pub get
+          dart pub outdated --json > outdated.json
+          python3 -c "
+          import json,sys
+          d=json.load(open('outdated.json'))
+          bad=[]
+          for p in d.get('packages',[]):
+              if p.get('isDiscontinued'): bad.append(p['package']+' discontinued')
+              cur=p.get('current',{}).get('version'); latest=p.get('latest',{}).get('version')
+              # naive major-lag check
+              if cur and latest and cur.split('.')[0]!=latest.split('.')[0]:
+                  bad.append(f\"{p['package']}: major behind ({cur} -> {latest})\")
+          if bad: print('\n'.join(bad)); sys.exit(1)
+          "
+
+  go-vulncheck:
+    if: contains(inputs.stack, 'go')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+      - name: govulncheck (official Go vuln DB)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck -show verbose ./...
+
+  go-nancy:
+    if: contains(inputs.stack, 'go')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: nancy (Sonatype OSS Index cross-check)
+        run: |
+          go list -json -deps ./... > deps.json || true
+          go install github.com/sonatype-nexus-community/nancy@latest || true
+          if command -v nancy >/dev/null 2>&1 && [ -s deps.json ]; then
+            nancy sleuth --loud < deps.json || true   # advisory — govulncheck is the blocker
+          fi
+
+  gosec:
+    if: contains(inputs.stack, 'go')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23', cache: true }
+      - name: gosec (SAST)
+        uses: securego/gosec@master
+        with:
+          args: -fmt sarif -out gosec.sarif -severity medium -confidence medium ./...
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
