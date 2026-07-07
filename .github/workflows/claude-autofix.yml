@@ -1,0 +1,169 @@
+name: claude-autofix
+
+# ============================================================================
+# STATUS: PAUSED (as of 2026-07-07). Do not wire this into product-repo callers.
+# Current rollout uses a MANUAL triage process — see README.md § Manual triage.
+# This workflow is kept in place so it can be re-enabled later without a rebuild.
+# ============================================================================
+#
+# Reusable workflow that spawns a Claude Code sub-agent to fix findings from
+# a failing ci-fast / ci-full-gate run. Bounded, safe, and always PR-scoped:
+#   - Only runs on PRs (never on main).
+#   - Max 3 fix iterations per PR (tracked via commit marker `[wasaa-ci-autofix N]`).
+#   - Commits to the PR head branch as a bot; each commit re-triggers ci-fast,
+#     which either passes or fails and re-invokes autofix if iterations remain.
+#   - Never touches gate policy files, .wasaa-ci-waiver.yml, or CI configs.
+#
+# The product-repo caller only invokes this after ci-fast has FAILED.
+
+on:
+  workflow_call:
+    inputs:
+      gate:
+        description: "fast | full"
+        required: true
+        type: string
+      max_iterations:
+        required: false
+        default: 3
+        type: number
+      report_artifact:
+        description: "Name of the aggregated report artifact (from report-aggregate)"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: claude-autofix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.decide.outputs.go }}
+      iteration: ${{ steps.decide.outputs.iteration }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          token: ${{ github.token }}
+          ref: ${{ github.event.pull_request.head.ref }}
+      - id: decide
+        env:
+          MAX: ${{ inputs.max_iterations }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "not a PR — skipping"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          count=$(git log --pretty=%s -n 30 | grep -cE '\[wasaa-ci-autofix [0-9]+\]' || echo 0)
+          echo "prior iterations: $count / $MAX"
+          if [ "$count" -ge "$MAX" ]; then
+            echo "::warning::Claude autofix has reached max iterations ($MAX). Manual intervention required."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+            echo "iteration=$((count+1))" >> "$GITHUB_OUTPUT"
+          fi
+
+  autofix:
+    needs: guard
+    if: needs.guard.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Download aggregated report
+        uses: actions/download-artifact@v4
+        with:
+          name: wasaa-ci-report-${{ inputs.gate }}
+          path: findings
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+          github-token: ${{ github.token }}
+        continue-on-error: true
+
+      - name: Assemble Claude task brief
+        id: brief
+        env:
+          ITERATION: ${{ needs.guard.outputs.iteration }}
+          MAX: ${{ inputs.max_iterations }}
+          GATE: ${{ inputs.gate }}
+        run: |
+          {
+            echo "You are the wasaa-ci autofix agent. Attempt ${ITERATION}/${MAX} on PR #${{ github.event.pull_request.number }}."
+            echo ""
+            echo "Load your standing instructions from .wasaa-ci/.claude/instructions/autofix.md and follow them exactly."
+            echo ""
+            echo "The gate that failed: ${GATE}"
+            echo "Findings (JSON): findings/findings.json"
+            echo "Findings (human report): findings/report.md"
+            echo ""
+            echo "Never edit: .wasaa-ci-waiver.yml, .github/workflows/*, files under .wasaa-ci/**."
+            echo "If the ONLY remaining findings are ones you cannot fix without those files, stop and post a PR comment explaining."
+          } > BRIEF.md
+          echo "brief_path=BRIEF.md" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt_file: BRIEF.md
+          allowed_tools: "Read,Edit,Write,Bash(git status),Bash(git diff),Bash(rg *),Bash(grep *),Bash(find *),Bash(npm test *),Bash(pnpm *),Bash(yarn *),Bash(pytest *),Bash(dart test *),Bash(flutter test *),Bash(go test *),Bash(go build *),Bash(go vet *),Bash(gofmt *),Bash(goimports *)"
+          disallowed_tools: "Bash(git push *),Bash(gh *),Bash(rm -rf *),Bash(curl *),Bash(wget *),Bash(sudo *)"
+          max_turns: "30"
+          model: claude-sonnet-4-6
+        continue-on-error: true
+
+      - name: Commit fixes (if any) and push
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes produced by Claude."
+            exit 0
+          fi
+          # Extra guard: refuse to commit changes touching sensitive paths
+          bad=$(git status --porcelain | awk '{print $2}' | grep -E '^(\.github/workflows/|\.wasaa-ci-waiver\.yml|\.wasaa-ci/)' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Claude attempted to modify guarded paths:"; echo "$bad"
+            git checkout -- $bad
+          fi
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "All Claude edits were on guarded paths — nothing to commit."; exit 0
+          fi
+          git config user.name  "wasaa-ci-autofix[bot]"
+          git config user.email "wasaa-ci-autofix@users.noreply.github.com"
+          git add -A
+          cat > COMMIT_MSG <<COMMIT
+          chore(ci): autofix findings [wasaa-ci-autofix ${{ needs.guard.outputs.iteration }}]
+
+          Generated by claude-autofix workflow. See run ${{ github.run_id }} for the source findings.
+          COMMIT
+          git commit -F COMMIT_MSG
+          rm -f COMMIT_MSG
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: wasaa-ci-autofix
+          message: |
+            🤖 **wasaa-ci-autofix** — iteration ${{ needs.guard.outputs.iteration }}/${{ inputs.max_iterations }} complete for `${{ inputs.gate }}` gate.
+
+            The next CI run will show whether the fixes resolved the findings. If the gate still fails and iterations remain, another pass will run automatically. Otherwise a human is needed.

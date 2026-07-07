@@ -1,0 +1,64 @@
+# =============================================================================
+# STATUS: PAUSED. Do NOT drop this into a product repo — the current rollout
+# uses the manual triage process (see README.md § Manual triage). Use
+# caller-node.yml / caller-python.yml / caller-dart.yml / caller-go.yml /
+# caller-polyglot.yml instead. This template is kept so autofix can be turned
+# back on later by copying it in and setting ANTHROPIC_API_KEY.
+# =============================================================================
+#
+# Full-featured caller: fast gate + Claude autofix loop on PRs, full gate on release.
+# Requires org secret ANTHROPIC_API_KEY.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast:
+    if: github.event_name == 'pull_request'
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-fast.yml@main
+    with:
+      stack: typescript,go        # <-- adjust to your stack
+      db: postgres,redis
+      has_openapi: true
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}
+
+  # Only spawn Claude when fast gate failed. Iterations capped at 3.
+  autofix:
+    if: github.event_name == 'pull_request' && needs.fast.result == 'failure'
+    needs: fast
+    uses: web-masters-ke/wasaa-ci/.github/workflows/claude-autofix.yml@main
+    with:
+      gate: fast
+      max_iterations: 3
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  full:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/ci-full-gate.yml@main
+    with:
+      stack: typescript,go
+      db: postgres,redis
+      has_openapi: true
+      has_container: true
+      container_dockerfile: Dockerfile
+      has_iac: true
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.WASAA_SEMGREP_APP_TOKEN }}
+
+  deploy:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: full
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Deploy ${{ github.ref_name }}"
