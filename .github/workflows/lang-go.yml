@@ -1,0 +1,109 @@
+name: lang-go
+
+on:
+  workflow_call:
+    inputs:
+      go_version:
+        required: false
+        default: "1.23"
+        type: string
+      mode:
+        required: false
+        default: "fast"
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: true
+
+      - name: go mod tidy is clean
+        run: |
+          go mod tidy
+          if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
+            git diff go.mod go.sum
+            echo "::error::go mod tidy produced changes. Commit them."
+            exit 1
+          fi
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l . 2>&1)
+          if [ -n "$out" ]; then
+            echo "$out" | while read f; do echo "::error file=$f::gofmt: file needs formatting"; done
+            exit 1
+          fi
+
+      - name: goimports (unused imports / grouping)
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          out=$(goimports -l . 2>&1)
+          if [ -n "$out" ]; then
+            echo "$out" | while read f; do echo "::error file=$f::goimports: file needs import reformat"; done
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+      - name: golangci-lint (SARIF)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --config=.wasaa-ci/configs/golangci.yml --out-format=sarif:golangci.sarif
+
+      - name: Upload golangci SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: golangci.sarif
+          category: golangci-lint
+
+      - name: Cyclomatic complexity (gocyclo)
+        if: inputs.mode == 'full'
+        run: |
+          go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+          gocyclo -over 15 . || { echo "::error::gocyclo: functions exceed complexity 15"; exit 1; }
+
+      - name: Cognitive complexity (gocognit)
+        if: inputs.mode == 'full'
+        run: |
+          go install github.com/uudashr/gocognit/cmd/gocognit@latest
+          gocognit -over 20 . || { echo "::error::gocognit: functions exceed cognitive complexity 20"; exit 1; }
+
+      - name: Race + cover tests
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -1
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lang-go-${{ inputs.mode }}
+          path: |
+            golangci.sarif
+            coverage.out
+          if-no-files-found: ignore

@@ -1,0 +1,84 @@
+run:
+  timeout: 5m
+  tests: true
+  build-tags: []
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck            # unchecked errors
+    - gosimple            # simplification
+    - govet               # vet
+    - ineffassign         # ineffective assignment
+    - staticcheck         # extensive static analysis
+    - typecheck
+    - unused              # dead code
+    - gosec               # security
+    - bodyclose           # response.Body closed
+    - contextcheck        # context propagation
+    - errorlint           # error wrapping
+    - exhaustive          # exhaustive switch on enums
+    - forbidigo           # forbid identifiers (fmt.Print* in prod, etc.)
+    - gocheckcompilerdirectives
+    - gochecknoinits
+    - gocyclo
+    - goconst             # repeated strings should be consts
+    - gocritic
+    - goimports
+    - goprintffuncname
+    - govet
+    - misspell
+    - nakedret
+    - noctx               # http.Request without context
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck        # sql.Rows.Err() checked
+    - sqlclosecheck       # sql.Rows / sql.Stmt closed
+    - stylecheck
+    - tenv                # t.Setenv over os.Setenv in tests
+    - thelper             # t.Helper in helpers
+    - unconvert
+    - unparam
+    - wastedassign
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  goconst:
+    min-len: 3
+    min-occurrences: 4
+  gosec:
+    excludes:
+      - G104   # audit-only (covered by errcheck)
+  forbidigo:
+    forbid:
+      - p: "^fmt\\.Print.*$"
+        msg: "use the shared logger, not fmt.Print* in production code"
+      - p: "^panic$"
+        msg: "panic in production paths is not allowed; return an error"
+  revive:
+    rules:
+      - name: package-comments
+      - name: exported
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: unexported-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: context-as-argument
+      - name: context-keys-type
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters: [gosec, gocyclo, errcheck, funlen, dupl, goconst]
+    - path: mocks/
+      linters: [revive, stylecheck, gochecknoinits]
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  format: colored-line-number
