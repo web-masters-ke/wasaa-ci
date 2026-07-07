@@ -1,0 +1,28 @@
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = [
+  "E", "F", "W",      # pycodestyle / pyflakes
+  "I",                # isort
+  "B",                # bugbear
+  "S",                # flake8-bandit (security)
+  "N",                # pep8-naming
+  "PL",               # pylint
+  "PT",               # pytest style
+  "SIM",              # simplify
+  "ARG",              # unused args
+  "TID",              # tidy imports
+  "RUF",              # ruff-specific
+  "TCH",              # type-checking
+  "ASYNC",            # async correctness
+  "C90",              # mccabe complexity
+]
+ignore = [
+  "PLR0913",  # too many args — case-by-case
+  "S101",     # assert used — allowed in tests
+]
+mccabe.max-complexity = 15
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["S", "PLR2004"]

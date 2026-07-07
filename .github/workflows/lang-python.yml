@@ -1,0 +1,97 @@
+name: lang-python
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        required: false
+        default: "3.12"
+        type: string
+      mode:
+        required: false
+        default: "fast"
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  py:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+
+      - name: Detect + install (poetry / uv / pip)
+        run: |
+          if [ -f poetry.lock ]; then
+            pipx install poetry
+            poetry install --with dev --no-interaction
+            echo "PY_RUN=poetry run" >> "$GITHUB_ENV"
+          elif [ -f uv.lock ]; then
+            pipx install uv
+            uv sync --frozen --all-extras
+            echo "PY_RUN=uv run" >> "$GITHUB_ENV"
+          else
+            python -m pip install --upgrade pip
+            [ -f requirements.txt ] && pip install -r requirements.txt || true
+            [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt || true
+            pip install ruff mypy bandit
+            echo "PY_RUN=" >> "$GITHUB_ENV"
+          fi
+          pip install ruff mypy bandit radon || true
+
+      - name: Ruff (lint + security S rules + bugbear)
+        run: ruff check --config .wasaa-ci/configs/ruff.toml --output-format=github .
+
+      - name: Ruff format --check
+        run: ruff format --config .wasaa-ci/configs/ruff.toml --check .
+
+      - name: Bandit (SAST)
+        run: |
+          bandit -c .wasaa-ci/configs/bandit.yaml -r . -f sarif -o bandit.sarif -ll -ii || true
+
+      - name: mypy (strict on new / changed files)
+        if: inputs.mode == 'full'
+        run: |
+          set -e
+          changed=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref || 'main' }}...HEAD -- '*.py' || true)
+          if [ -n "$changed" ]; then
+            $PY_RUN mypy --strict --install-types --non-interactive $changed || true
+          fi
+
+      - name: Complexity (radon) — full mode
+        if: inputs.mode == 'full'
+        run: |
+          radon cc -a -nc . > radon.out || true
+          python .wasaa-ci/scripts/enforce_radon.py radon.out 15
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit.sarif
+          category: bandit
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lang-python-${{ inputs.mode }}
+          path: |
+            bandit.sarif
+            radon.out
+          if-no-files-found: ignore
