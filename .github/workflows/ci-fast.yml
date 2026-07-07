@@ -1,0 +1,178 @@
+name: ci-fast
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: "Comma-separated languages present in the repo: typescript,python,dart,go"
+        required: true
+        type: string
+      db:
+        description: "Comma-separated DBs present: postgres,mongo,redis (or 'none')"
+        required: false
+        default: "none"
+        type: string
+      has_openapi:
+        description: "Repo publishes an OpenAPI spec"
+        required: false
+        default: false
+        type: boolean
+      has_frontend_bundle:
+        description: "Repo produces a frontend bundle (Next/Vite/Flutter Web)"
+        required: false
+        default: false
+        type: boolean
+      node_version:
+        required: false
+        default: "20"
+        type: string
+      python_version:
+        required: false
+        default: "3.12"
+        type: string
+      dart_channel:
+        required: false
+        default: "stable"
+        type: string
+      go_version:
+        required: false
+        default: "1.23"
+        type: string
+    secrets:
+      SEMGREP_APP_TOKEN:
+        required: false
+
+concurrency:
+  group: ci-fast-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  actions: read
+
+jobs:
+  # ---------------- Language gates (only run for stacks the repo declared) ----------------
+  lang-typescript:
+    if: contains(inputs.stack, 'typescript')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/lang-typescript.yml@main
+    with:
+      node_version: ${{ inputs.node_version }}
+      mode: fast
+
+  lang-python:
+    if: contains(inputs.stack, 'python')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/lang-python.yml@main
+    with:
+      python_version: ${{ inputs.python_version }}
+      mode: fast
+
+  lang-dart:
+    if: contains(inputs.stack, 'dart')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/lang-dart.yml@main
+    with:
+      dart_channel: ${{ inputs.dart_channel }}
+      mode: fast
+
+  lang-go:
+    if: contains(inputs.stack, 'go')
+    uses: web-masters-ke/wasaa-ci/.github/workflows/lang-go.yml@main
+    with:
+      go_version: ${{ inputs.go_version }}
+      mode: fast
+
+  # ---------------- Security (fast subset — full deep scans deferred to full-gate) --------
+  security-sast:
+    uses: web-masters-ke/wasaa-ci/.github/workflows/security-sast.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      mode: fast
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  security-secrets:
+    uses: web-masters-ke/wasaa-ci/.github/workflows/security-secrets.yml@main
+    with:
+      mode: fast   # scans diff only on PR, full history on full-gate
+
+  security-sca:
+    uses: web-masters-ke/wasaa-ci/.github/workflows/security-sca.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      mode: fast
+
+  # ---------------- DB safety (migration lint runs on every PR) ---------------------------
+  db-safety:
+    if: inputs.db != 'none'
+    uses: web-masters-ke/wasaa-ci/.github/workflows/db-safety.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      db: ${{ inputs.db }}
+      mode: fast
+
+  # ---------------- Tests + coverage ------------------------------------------------------
+  quality-tests:
+    uses: web-masters-ke/wasaa-ci/.github/workflows/quality-tests.yml@main
+    with:
+      stack: ${{ inputs.stack }}
+      node_version: ${{ inputs.node_version }}
+      python_version: ${{ inputs.python_version }}
+      dart_channel: ${{ inputs.dart_channel }}
+      go_version: ${{ inputs.go_version }}
+      mode: fast
+
+  # ---------------- API contract lint ----------------------------------------------------
+  quality-api:
+    if: inputs.has_openapi
+    uses: web-masters-ke/wasaa-ci/.github/workflows/quality-api.yml@main
+    with:
+      mode: fast
+
+  # ---------------- Summary + PR comment + hard gate --------------------------------------
+  summary:
+    name: summary
+    needs:
+      - lang-typescript
+      - lang-python
+      - lang-dart
+      - lang-go
+      - security-sast
+      - security-secrets
+      - security-sca
+      - db-safety
+      - quality-tests
+      - quality-api
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wasaa-ci
+        uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Roll up findings
+        env:
+          GATE: fast
+          RESULTS_JSON: ${{ toJson(needs) }}
+        run: bash .wasaa-ci/scripts/gate-summary.sh
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: gate-summary.md
+          header: wasaa-ci
+
+      - name: Enforce gate
+        id: enforce
+        run: bash .wasaa-ci/scripts/severity-gate.sh --gate fast
+
+  report:
+    needs: summary
+    if: always()
+    uses: web-masters-ke/wasaa-ci/.github/workflows/report-aggregate.yml@main
+    with:
+      gate: fast
