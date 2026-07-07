@@ -1,0 +1,28 @@
+{
+  "description": "Approved OSS licenses for Wasaa products. Anything not on this list requires Legal review.",
+  "allowed": [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    "Python-2.0",
+    "PostgreSQL",
+    "Zlib",
+    "MPL-2.0",
+    "BlueOak-1.0.0"
+  ],
+  "denied": [
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-3.0",
+    "LGPL-3.0",
+    "SSPL-1.0",
+    "CC-BY-NC-*",
+    "Elastic-2.0",
+    "BUSL-1.1"
+  ]
+}

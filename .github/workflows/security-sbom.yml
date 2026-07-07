@@ -1,0 +1,85 @@
+name: security-sbom
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Generate SBOM (CycloneDX + SPDX)
+        run: |
+          syft dir:. -o cyclonedx-json=sbom.cyclonedx.json -o spdx-json=sbom.spdx.json
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v1
+        with:
+          subject-path: '.'
+          sbom-path: sbom.cyclonedx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom.cyclonedx.json
+            sbom.spdx.json
+
+  license-allowlist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: web-masters-ke/wasaa-ci
+          ref: main
+          path: .wasaa-ci
+
+      - name: TS license check
+        if: contains(inputs.stack, 'typescript')
+        run: |
+          npx --yes license-checker --json --production > licenses-node.json || true
+          node .wasaa-ci/scripts/enforce-licenses.js licenses-node.json .wasaa-ci/configs/license-allowlist.json
+
+      - name: Python license check
+        if: contains(inputs.stack, 'python')
+        run: |
+          pip install pip-licenses
+          pip-licenses --format=json > licenses-py.json
+          python .wasaa-ci/scripts/enforce_licenses.py licenses-py.json .wasaa-ci/configs/license-allowlist.json
+
+      - name: Dart license check
+        if: contains(inputs.stack, 'dart')
+        run: |
+          dart pub global activate very_good_cli || true
+          dart pub deps --json > deps.json || true
+          python3 .wasaa-ci/scripts/enforce_dart_licenses.py deps.json .wasaa-ci/configs/license-allowlist.json
+
+      - name: Go license check
+        if: contains(inputs.stack, 'go')
+        run: |
+          go install github.com/google/go-licenses@latest
+          go-licenses report ./... --template .wasaa-ci/scripts/go-licenses.tpl > licenses-go.json 2>/dev/null || \
+            go-licenses csv ./... > licenses-go.csv
+          python3 .wasaa-ci/scripts/enforce_go_licenses.py "$( [ -f licenses-go.json ] && echo licenses-go.json || echo licenses-go.csv )" .wasaa-ci/configs/license-allowlist.json
