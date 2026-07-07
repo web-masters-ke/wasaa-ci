@@ -1,0 +1,27 @@
+# Wasaa gitleaks config — extends the default ruleset plus internal patterns.
+title = "wasaa-ci"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "wasaa-service-token"
+description = "Wasaa-issued service token"
+regex = '''wsa_(live|test|stg)_[A-Za-z0-9]{32,}'''
+tags = ["wasaa", "service-token"]
+
+[[rules]]
+id = "wasaa-internal-jwt"
+description = "Internal signed JWT with wasaa issuer"
+regex = '''eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'''
+entropy = 3.7
+
+[allowlist]
+description = "known safe placeholders"
+regexes = [
+  '''EXAMPLE|CHANGE_?ME|placeholder|dummy|test[_-]?key''',
+]
+paths = [
+  '''\.example\.env$''',
+  '''fixtures/''',
+]
