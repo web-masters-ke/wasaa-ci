@@ -55,8 +55,6 @@ on:
     secrets:
       SEMGREP_APP_TOKEN:
         required: false
-      TRIVY_TOKEN:
-        required: false
     outputs:
       passed:
         description: "true iff every blocking rule passed"

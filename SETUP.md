@@ -69,7 +69,6 @@ Go to `https://github.com/organizations/web-masters-ke/settings/secrets/actions`
 | Secret name                  | Value                  | Required? | Purpose                                              |
 |------------------------------|------------------------|-----------|------------------------------------------------------|
 | `WASAA_SEMGREP_APP_TOKEN`    | from Semgrep dashboard | Optional  | Higher-fidelity Semgrep rules + Cloud metrics       |
-| `WASAA_TRIVY_TOKEN`          | from Aqua              | Optional  | Higher Trivy DB pull rate (avoids rate limits)      |
 | `ANTHROPIC_API_KEY`          | from console.anthropic.com | **No — paused** | Only needed later when the autofix loop is un-paused |
 
 For each secret's **Repository access**, choose "Selected repositories" or "All repositories in the organization" per your preference. Recommendation: **All repositories**, since the secrets are non-sensitive read tokens.

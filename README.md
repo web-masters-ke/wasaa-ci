@@ -32,9 +32,7 @@ A single central repo (`web-masters-ke/wasaa-ci`) that exports reusable workflow
 2. Set the `stack` and `db` inputs to match what your repo actually uses. Everything else has sensible defaults.
 
 3. Ensure these org-level secrets exist (Security has provisioned them):
-   - `WASAA_TRIVY_TOKEN` — optional, for higher Trivy DB pull-rate.
-   - `WASAA_SNYK_TOKEN` — optional, only if repo opts into Snyk in addition to Trivy.
-   - `WASAA_SEMGREP_APP_TOKEN` — optional, for Semgrep Cloud metrics.
+   - `WASAA_SEMGREP_APP_TOKEN` — optional, for Semgrep Cloud metrics and private rulesets. The gate runs fine without it.
    - `GITHUB_TOKEN` — provided by GitHub, used for CodeQL, SBOM upload, PR annotations.
    - `ANTHROPIC_API_KEY` — **not needed for the current rollout** (autofix is paused). Only required if/when the Claude autofix loop is re-enabled.
 
