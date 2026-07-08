@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   semgrep:
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     container:
       image: semgrep/semgrep:latest
     steps:
@@ -86,7 +86,7 @@ jobs:
 
   codeql:
     if: inputs.mode == 'full'
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     strategy:
       fail-fast: false
       matrix:

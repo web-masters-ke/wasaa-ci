@@ -144,7 +144,7 @@ jobs:
       - quality-tests
       - quality-api
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - name: Checkout wasaa-ci
         uses: actions/checkout@v4

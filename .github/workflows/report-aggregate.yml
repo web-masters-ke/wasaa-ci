@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build-report:
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with:

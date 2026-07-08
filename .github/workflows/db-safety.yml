@@ -21,7 +21,7 @@ permissions:
 jobs:
   postgres-migrations:
     if: contains(inputs.db, 'postgres')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,7 +61,7 @@ jobs:
 
   mongo-query-audit:
     if: contains(inputs.db, 'mongo')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,7 +76,7 @@ jobs:
 
   redis-usage-audit:
     if: contains(inputs.db, 'redis')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +90,7 @@ jobs:
         run: bash .wasaa-ci/scripts/redis-usage-audit.sh
 
   nplus1:
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,7 +111,7 @@ jobs:
           if-no-files-found: ignore
 
   query-index-audit:
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4

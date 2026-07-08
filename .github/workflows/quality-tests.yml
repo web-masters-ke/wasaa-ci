@@ -43,7 +43,7 @@ permissions:
 jobs:
   ts-tests:
     if: contains(inputs.stack, 'typescript')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -81,7 +81,7 @@ jobs:
 
   py-tests:
     if: contains(inputs.stack, 'python')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -103,7 +103,7 @@ jobs:
 
   dart-tests:
     if: contains(inputs.stack, 'dart')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -145,7 +145,7 @@ jobs:
 
   go-tests:
     if: contains(inputs.stack, 'go')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

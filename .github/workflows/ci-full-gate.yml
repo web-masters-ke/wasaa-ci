@@ -189,7 +189,7 @@ jobs:
       - quality-api
       - quality-perf
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     outputs:
       passed: ${{ steps.enforce.outputs.passed }}
     steps:

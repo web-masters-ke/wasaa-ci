@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   spectral:
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -46,7 +46,7 @@ jobs:
 
   openapi-breaking-change:
     if: inputs.mode == 'full'
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }

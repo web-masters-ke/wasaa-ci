@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   trivy-fs:
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +48,7 @@ jobs:
 
   npm-audit:
     if: contains(inputs.stack, 'typescript')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,7 +62,7 @@ jobs:
 
   pip-audit:
     if: contains(inputs.stack, 'python')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -78,7 +78,7 @@ jobs:
 
   pub-audit:
     if: contains(inputs.stack, 'dart')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
@@ -101,7 +101,7 @@ jobs:
 
   go-vulncheck:
     if: contains(inputs.stack, 'go')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -115,7 +115,7 @@ jobs:
 
   go-nancy:
     if: contains(inputs.stack, 'go')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -131,7 +131,7 @@ jobs:
 
   gosec:
     if: contains(inputs.stack, 'go')
-    runs-on: ubuntu-latest
+    runs-on: wasaa-org-runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
