@@ -2,8 +2,15 @@ extends:
   - spectral:oas
   - spectral:asyncapi
 
+# Rule severity policy
+#   error → blocks CI (quality-api.yml runs with --fail-severity=error).
+#   warn  → reported in the PR comment but non-blocking. Used for newly added
+#           structure/naming/completeness rules during the migration window.
+#           A follow-up PR will flip these to error once downstream specs
+#           have been brought into conformance.
+
 rules:
-  # ---- Wasaa additions ----
+  # ---- Wasaa: security, tagging, error schema, contact/HTTPS (blocking) ----
   wasaa-operation-must-declare-security:
     description: "Every non-public operation must declare a security scheme."
     given: "$.paths[*][get,post,put,patch,delete]"
@@ -42,3 +49,121 @@ rules:
       function: pattern
       functionOptions:
         match: '^https://'
+
+  # ---- Wasaa: URL / path structure (warn, migration window) ----
+  wasaa-path-kebab-case:
+    description: "Path literal segments must be lowercase kebab-case; params must be {camelCase}."
+    message: "{{path}}: segments must be kebab-case (a-z 0-9 -), params must be {camelCase}."
+    given: "$.paths.*~"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        match: '^(\/([a-z][a-z0-9]*(-[a-z0-9]+)*|\{[a-z][a-zA-Z0-9]*\}))+$'
+  wasaa-path-no-trailing-slash:
+    description: "Paths must not have a trailing slash."
+    given: "$.paths.*~"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        notMatch: '.+/$'
+  wasaa-path-no-verbs:
+    description: "Paths should describe resources, not actions. Avoid verbs like /get, /create, /update, /delete, /list, /fetch, /new, /add, /remove, /edit."
+    message: "{{path}}: paths should use nouns, not verbs (e.g. GET /users instead of /getUsers)."
+    given: "$.paths.*~"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        notMatch: '/(get|create|update|delete|list|fetch|new|add|remove|edit)(-|/|$)'
+  wasaa-path-must-be-versioned:
+    description: "Every path must sit under a /v{N}/ prefix. Operational endpoints (/health, /metrics, /openapi.*, /docs) are exempt."
+    message: "{{path}}: must be under a /v{N}/ version prefix (or be one of: /health, /healthz, /readyz, /livez, /metrics, /openapi.*, /docs)."
+    given: "$.paths.*~"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        match: '^(/v[0-9]+/|/(health|healthz|readyz|livez|metrics|openapi(\.(json|ya?ml))?|docs)($|/))'
+  wasaa-path-param-camel-case:
+    description: "Path parameter names must be camelCase."
+    given: "$.paths[*][*].parameters[?(@.in == 'path')].name"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        match: '^[a-z][a-zA-Z0-9]*$'
+
+  # ---- Wasaa: schema / property naming (warn, migration window) ----
+  wasaa-schema-name-pascal-case:
+    description: "Schema names in components.schemas must be PascalCase."
+    given: "$.components.schemas.*~"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        match: '^[A-Z][A-Za-z0-9]*$'
+  wasaa-property-name-camel-case:
+    description: "JSON property names must be camelCase."
+    given: "$..properties.*~"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        match: '^[a-z][a-zA-Z0-9]*$'
+
+  # ---- Wasaa: versioning (warn, migration window) ----
+  wasaa-info-version-semver:
+    description: "info.version must follow SemVer (MAJOR.MINOR.PATCH)."
+    given: "$.info.version"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        match: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+
+  # ---- Wasaa: operation completeness (warn, migration window) ----
+  wasaa-operation-must-have-operation-id:
+    description: "Every operation must declare an operationId."
+    given: "$.paths[*][get,post,put,patch,delete,options,head]"
+    severity: warn
+    then:
+      field: operationId
+      function: truthy
+  wasaa-operation-id-camel-case:
+    description: "operationId must be camelCase."
+    given: "$.paths[*][*].operationId"
+    severity: warn
+    then:
+      function: pattern
+      functionOptions:
+        match: '^[a-z][a-zA-Z0-9]*$'
+  wasaa-operation-must-have-summary:
+    description: "Every operation must have a summary."
+    given: "$.paths[*][get,post,put,patch,delete,options,head]"
+    severity: warn
+    then:
+      field: summary
+      function: truthy
+  wasaa-operation-must-have-description:
+    description: "Every operation must have a description."
+    given: "$.paths[*][get,post,put,patch,delete,options,head]"
+    severity: warn
+    then:
+      field: description
+      function: truthy
+  wasaa-operation-2xx-must-have-schema:
+    description: "Success responses (2xx) that carry a JSON body must define a schema."
+    given: "$.paths[*][*].responses[?(@property.match(/^2\\d\\d$/))].content.application/json"
+    severity: warn
+    then:
+      field: schema
+      function: truthy
+  wasaa-parameter-must-have-description:
+    description: "Every parameter must have a description."
+    given: "$.paths[*][*].parameters[*]"
+    severity: warn
+    then:
+      field: description
+      function: truthy
